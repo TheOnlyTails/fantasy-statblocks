@@ -6,10 +6,11 @@
     import { setContext } from "../layout/context";
     import Filters from "./filters/Filters.svelte";
     import { NONE, NameFilter, SourcesFilter } from "./filters/filters";
-    import { Setting, prepareSimpleSearch } from "obsidian";
+    import { prepareSimpleSearch } from "obsidian";
     import type { Monster } from "index";
     import { derived, writable } from "svelte/store";
     import { onDestroy } from "svelte";
+    import { confirmWithModal } from "src/view/statblock";
 
     export let plugin: StatBlockPlugin;
 
@@ -59,6 +60,18 @@
         }
     );
 
+    const remove = async () => {
+        if (!$filtered.length) return;
+        if (
+            await confirmWithModal(
+                plugin.app,
+                `Are you sure you want to delete ${$filtered.length} creature${$filtered.length === 1 ? "" : "s"}?`
+            )
+        ) {
+            await plugin.deleteMonsters(...$filtered.map((m) => m.name));
+        }
+    };
+
     const pages = derived([slice, filtered], ([slice, filtered]) =>
         Math.ceil(filtered.length / slice)
     );
@@ -75,7 +88,7 @@
         class="filters-container"
         style="background-color: {backgroundColor}; top: -{paddingTop};"
     >
-        <Filters />
+        <Filters on:remove={() => remove()} />
         <div class="setting-item-description">
             {$filtered.length ? $filtered.length : "No"} creature{$filtered.length ===
             1

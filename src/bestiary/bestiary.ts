@@ -21,6 +21,10 @@ declare module "obsidian" {
             name: `fantasy-statblocks:bestiary:sorted:${T}`,
             values: Array<Monster>
         ): void;
+        on(
+            name: `fantasy-statblocks:bestiary:creature-added`,
+            callback: (creature: Monster) => void
+        ): EventRef;
         on<T extends string>(
             name: `fantasy-statblocks:bestiary:indexed:${T}`,
             callback: () => void
@@ -28,10 +32,6 @@ declare module "obsidian" {
         on<T extends string>(
             name: `fantasy-statblocks:bestiary:sorted:${T}`,
             callback: (values: Array<Monster>) => void
-        ): EventRef;
-        on(
-            name: `fantasy-statblocks:bestiary:creature-added`,
-            callback: (creature: Monster) => void
         ): EventRef;
     }
 }
@@ -125,6 +125,7 @@ class BestiaryClass {
         this.registerSorter("name", (a, b) => a.name.localeCompare(b.name));
 
         this.#events = plugin.app.workspace;
+
         Watcher.initialize(plugin).load();
 
         plugin.addCommand({
@@ -165,11 +166,25 @@ class BestiaryClass {
         setTimeout(() => {
             for (const [field, map] of this.#indices) {
                 if (field in creature) {
-                    const value = stringify(creature[field as keyof Monster]);
-                    if (!map.has(value)) {
-                        map.set(value, new Set([creature.name]));
+                    let values = [];
+                    if (Array.isArray(creature[field as keyof Monster])) {
+                        for (const _v of creature[
+                            field as keyof Monster
+                        ] as Array<any>) {
+                            values.push(stringify(_v));
+                        }
                     } else {
-                        map.get(value).add(creature.name);
+                        values.push(
+                            stringify(creature[field as keyof Monster])
+                        );
+                    }
+
+                    for (const value of values) {
+                        if (!map.has(value)) {
+                            map.set(value, new Set([creature.name]));
+                        } else {
+                            map.get(value).add(creature.name);
+                        }
                     }
 
                     this.#events.trigger(
@@ -250,6 +265,16 @@ class BestiaryClass {
         this.#ephemeral.delete(name);
         this.#triggerUpdatedCallbacks();
         this.#triggerSort();
+    }
+
+    removeCreatures(...names: string[]) {
+        for (const name of names) {
+            if (this.isLocal(name)) {
+                this.removeLocalCreature(name);
+            } else {
+                this.removeEphemeralCreature(name);
+            }
+        }
     }
 
     isResolved() {
@@ -373,11 +398,45 @@ class BestiaryClass {
 
         return extensions;
     }
+    getExtensionNames(
+        creature: Partial<Monster>,
+        extended: Set<string>
+    ): string[] {
+        let extensions: string[] = [creature.name];
+        if (
+            !("extends" in creature) ||
+            !(
+                Array.isArray(creature.extends) ||
+                typeof creature.extends == "string"
+            )
+        ) {
+            return extensions;
+        }
+        if (creature.extends && creature.extends.length) {
+            for (const extension of [creature.extends].flat()) {
+                if (extended.has(extension)) {
+                    console.info(
+                        "Circular extend dependency detected in " +
+                            [...extended]
+                    );
+                    continue;
+                }
+                extended.add(creature.name);
+                const extensionMonster = this.#bestiary.get(extension);
+                if (!extensionMonster) continue;
+                extensions.push(
+                    ...this.getExtensionNames(extensionMonster, extended)
+                );
+            }
+        }
+
+        return extensions;
+    }
 
     /**
      * Retrieve a fully defined creature out of the bestiary, resolving all extensions.
      *
-     * @param {string} name Name of the creautre to retrieve.
+     * @param {string} name Name of the creature to retrieve.
      * @returns {Partial<Monster> | null} The creature from the bestiary, or null if not present.
      */
     async getCreatureFromBestiary(

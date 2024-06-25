@@ -1,6 +1,6 @@
 <script lang="ts">
     import { MarkdownRenderer, Notice } from "obsidian";
-    import type { Layout, MarkdownableItem, StatblockItem } from "src/layouts/layout.types";
+    import type { Layout, MarkdownableItem } from "src/layouts/layout.types";
     import type StatBlockPlugin from "src/main";
 
     import { getContext } from "svelte";
@@ -8,20 +8,29 @@
     import type { Monster } from "index";
     import { Linkifier } from "src/parser/linkify";
     import { parseForDice } from "src/parser/dice-parsing";
+    import type { Writable } from "svelte/store";
 
     export let property: string;
-    property = Linkifier.stringifyLinks(property);
+
+    property =
+        typeof property === "string"
+            ? Linkifier.stringifyLinks(property)
+            : property;
 
     const context = getContext<string>("context");
     const renderer = getContext<StatBlockRenderer>("renderer");
     let item = getContext<MarkdownableItem>("item");
-    let dice = getContext<boolean>("dice") && item.dice;
-    let monster = getContext<Monster>("monster");
+    let canDice = getContext<boolean>("dice");
+
+    let parseDice = item.dice;
+    const monsterStore = getContext<Writable<Monster>>("monster");
+    let monster = $monsterStore;
+    monsterStore.subscribe((m) => (monster = m));
     let plugin = getContext<StatBlockPlugin>("plugin");
     let layout = getContext<Layout>("layout");
 
     let split: Array<{ text: string; original?: string } | string> = [property];
-    if (dice) {
+    if (canDice && parseDice) {
         if (
             item.diceProperty &&
             item.diceProperty in monster &&
@@ -36,7 +45,8 @@
                 split = [parsed];
             }
         }
-    } else if (item.diceCallback) {
+    }
+    if (canDice && item.diceCallback) {
         try {
             const frame = document.body.createEl("iframe");
             const funct = (frame.contentWindow as any).Function;
@@ -59,8 +69,9 @@
     }
 
     property = "";
+
     for (const dice of split) {
-        if (typeof dice != "string") {
+        if (canDice && typeof dice != "string") {
             let diceString;
             let diceText = plugin.getRollerString(dice.text);
             if (dice.original) {
@@ -75,7 +86,10 @@
     }
 
     const markdown = (node: HTMLElement) => {
-        MarkdownRenderer.render(app, property, node, context, renderer);
+        if (property === "-") {
+            property = "\\-";
+        }
+        MarkdownRenderer.render(plugin.app, property, node, context, renderer);
     };
 </script>
 

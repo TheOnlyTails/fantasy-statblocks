@@ -20,6 +20,7 @@
     import type { Monster, Trait } from "index";
     import { Linkifier } from "src/parser/linkify";
     import Action from "./Action.svelte";
+    import type { Writable } from "svelte/store";
 
     const dispatch = createEventDispatcher();
 
@@ -34,7 +35,9 @@
 
     export let plugin: StatBlockPlugin;
 
-    const monster = getContext<Monster>("monster");
+    const monsterStore = getContext<Writable<Monster>>("monster");
+    let monster = $monsterStore;
+    monsterStore.subscribe((m) => (monster = m));
     const ensureColon = (header: string) => {
         if (/[^a-zA-Z0-9]$/.test(header)) return header;
         return `${header}:`;
@@ -382,12 +385,14 @@
                                 .firstElementChild as HTMLDivElement
                         );
                     }
-                    for (const spell of block.spells) {
+                    for (let i = 0; i < block.spells.length; i++) {
+                        const spell = block.spells[i];
                         const component = new SpellItem({
                             target: createDiv(),
                             props: {
                                 spell,
-                                render: item.markdown
+                                first: i === 0,
+                                last: i === block.spells.length - 1
                             }
                         });
                         targets.push(
@@ -463,7 +468,6 @@
                                 monster.name
                             ),
                             property: "trait-subheading",
-                            render: item.markdown,
                             item,
                             monster,
                             trait: monster[item.properties[0]] as Trait
@@ -482,7 +486,6 @@
                                 name: blocks[0].name,
                                 desc: blocks[0].desc,
                                 property: item.properties[0],
-                                render: item.markdown,
                                 item,
                                 monster,
                                 trait: blocks[0]
@@ -502,7 +505,6 @@
                                     name: block.name,
                                     desc: block.desc,
                                     property: item.properties[0],
-                                    render: item.markdown,
                                     item,
                                     monster,
                                     trait: block

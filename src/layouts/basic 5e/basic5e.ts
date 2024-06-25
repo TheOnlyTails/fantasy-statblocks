@@ -37,7 +37,7 @@ export const Statblock5e: StatblockItem[] = [
                                         id: nanoid(),
                                         icon: "sword",
                                         callback:
-                                            "try { InitiativeTracker.newEncounter({creatures: [monster]}); } catch(e) {}"
+                                            "try { InitiativeTracker.newEncounter({roll: true, creatures: [monster]}); } catch(e) {}"
                                     },
                                     {
                                         type: "action",
@@ -78,7 +78,9 @@ export const Statblock5e: StatblockItem[] = [
                 id: nanoid(),
                 properties: ["ac"],
                 display: "Armor Class",
-                conditioned: true
+                conditioned: true,
+                callback:
+                    'const ac = [monster.ac];if ("ac_class" in monster) {ac.push(`(${monster.ac_class})`);}return ac.join(" ");'
             },
             {
                 type: "property",
@@ -87,7 +89,11 @@ export const Statblock5e: StatblockItem[] = [
                 display: "Hit Points",
                 dice: true,
                 diceProperty: "hit_dice",
-                diceCallback: `return [{ text: monster["hit_dice"] }]`,
+                diceCallback: `if ("hit_dice" in monster) {
+  return [{ text: monster["hit_dice"] }];
+} else {
+  return property;
+}`,
                 callback:
                     'let str = [monster.hp];\nif (monster.hit_dice?.length) {\n  str.push(`(${monster.hit_dice})`);\n}\nreturn str.join(" ");',
                 conditioned: true
@@ -726,6 +732,14 @@ return "";`
         conditioned: true,
 
         dice: true
+    },
+    {
+        type: "traits",
+        id: nanoid(),
+        properties: ["regional_effects"],
+        heading: "Regional Effects",
+        conditioned: true,
+        dice: true
     }
 ];
 
@@ -734,5 +748,5 @@ export const Layout5e: DefaultLayout = {
     id: "basic-5e-layout",
     name: "Basic 5e Layout",
     edited: false,
-    version: 6
+    version: 9
 };

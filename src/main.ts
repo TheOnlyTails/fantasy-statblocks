@@ -15,8 +15,12 @@ import type { Monster, StatblockParameters } from "../index";
 import StatblockSettingTab from "./settings/settings";
 import fastCopy from "fast-copy";
 
-import { ExpectedValue, type HomebrewCreature } from "obsidian-overload";
-import type { Layout, StatblockItem } from "./layouts/layout.types";
+import type { HomebrewCreature } from "obsidian-overload";
+import type {
+    DefaultLayout,
+    Layout,
+    StatblockItem
+} from "./layouts/layout.types";
 import { Layout5e } from "./layouts/basic 5e/basic5e";
 import { StatblockSuggester } from "./suggest";
 import { DefaultLayouts } from "./layouts";
@@ -26,12 +30,13 @@ import { CREATURE_VIEW, CreatureView } from "./combatant";
 import { API } from "./api/api";
 import { Linkifier } from "./parser/linkify";
 import { Bestiary } from "./bestiary/bestiary";
+import { ExpectedValue } from "@javalent/dice-roller";
 
 export const DICE_ROLLER_SOURCE = "FANTASY_STATBLOCKS_PLUGIN";
 
 const DEFAULT_DATA: StatblockData = {
     monsters: [],
-    defaultLayouts: [...DefaultLayouts.map((l) => fastCopy(l))],
+    defaultLayouts: {},
     layouts: [],
     default: Layout5e.name,
     useDice: true,
@@ -52,7 +57,7 @@ const DEFAULT_DATA: StatblockData = {
     hideConditionHelp: false,
     alwaysImport: false,
     defaultLayoutsIntegrated: false,
-    atomicWrite: true
+    atomicWrite: false
 };
 
 export default class StatBlockPlugin extends Plugin {
@@ -62,25 +67,15 @@ export default class StatBlockPlugin extends Plugin {
 
     getRoller(str: string) {
         if (!this.canUseDiceRoller) return;
-        const roller = this.app.plugins
-            .getPlugin("obsidian-dice-roller")
-            ?.api.getRollerSync(str, DICE_ROLLER_SOURCE);
+        const roller = window.DiceRoller.getRollerSync(str, DICE_ROLLER_SOURCE);
         return roller;
     }
     getRollerString(str: string) {
         if (!this.canUseDiceRoller) return str;
-        return this.app.plugins
-            .getPlugin("obsidian-dice-roller")
-            ?.api.getRollerString(str, DICE_ROLLER_SOURCE);
+        return window.DiceRoller.getRollerString(str, DICE_ROLLER_SOURCE);
     }
     get diceRollerInstalled() {
-        if (this.app.plugins.getPlugin("obsidian-dice-roller") != null) {
-            if (!this.app.plugins.getPlugin("obsidian-dice-roller").api) {
-                new Notice(
-                    "Please update Dice Roller to the latest version to use with Fantasy Statblocks."
-                );
-                return false;
-            }
+        if (window.DiceRoller != null) {
             return true;
         }
         return false;
@@ -98,11 +93,25 @@ export default class StatBlockPlugin extends Plugin {
         if (leaf && leaf.view && leaf.view instanceof CreatureView)
             return leaf.view;
     }
-    async openCreatureView() {
-        const leaf = this.app.workspace.getRightLeaf(true);
-        await leaf.setViewState({
-            type: CREATURE_VIEW
-        });
+    async openCreatureView(newPane: boolean = false) {
+        let leaf: WorkspaceLeaf;
+        const existing = this.app.workspace.getLeavesOfType(CREATURE_VIEW);
+
+        if (!newPane && existing?.length) {
+            leaf = existing.shift();
+        } else {
+            if (newPane && existing?.length) {
+                leaf = this.app.workspace.createLeafInParent(
+                    existing[0].parent,
+                    existing[0].parent.children.length
+                );
+            } else {
+                leaf = this.app.workspace.getRightLeaf(true);
+            }
+            await leaf.setViewState({
+                type: CREATURE_VIEW
+            });
+        }
         this.app.workspace.revealLeaf(leaf);
         return leaf.view as CreatureView;
     }
@@ -141,14 +150,45 @@ export default class StatBlockPlugin extends Plugin {
 
         this.addCommand({
             id: "open-creature-view",
-            name: "Open Creature Pane",
-            callback: () => {
-                this.openCreatureView();
+            name: "Open Creature pane",
+            checkCallback: (checking) => {
+                const existing =
+                    this.app.workspace.getLeavesOfType(CREATURE_VIEW);
+                if (!existing.length) {
+                    if (!checking) {
+                        this.openCreatureView();
+                    }
+                    return true;
+                }
+                return false;
             }
         });
-        this.addRibbonIcon("skull", "Open Creature Pane", async () => {
-            this.openCreatureView();
+        this.addCommand({
+            id: "reveal-creature-view",
+            name: "Reveal Creature pane",
+            checkCallback: (checking) => {
+                const existing =
+                    this.app.workspace.getLeavesOfType(CREATURE_VIEW);
+                if (existing.length) {
+                    if (!checking) {
+                        this.openCreatureView();
+                    }
+                    return true;
+                }
+                return false;
+            }
         });
+        this.addCommand({
+            id: "open-new-creature-view",
+            name: "Open new Creature pane",
+            callback: () => {
+                this.openCreatureView(true);
+            }
+        });
+        this.addRibbonIcon("skull", "Open Creature pane", async (evt) => {
+            this.openCreatureView(evt.getModifierState("Meta"));
+        });
+
         this.registerObsidianProtocolHandler(
             "creature-pane",
             this.#creaturePaneProtocolHandler.bind(this)
@@ -176,9 +216,18 @@ export default class StatBlockPlugin extends Plugin {
             (leaf: WorkspaceLeaf) => new CreatureView(leaf, this)
         );
         if (this.canUseDiceRoller) {
-            this.app.plugins
-                .getPlugin("obsidian-dice-roller")
-                ?.api.registerSource(DICE_ROLLER_SOURCE, {
+            window.DiceRoller.registerSource(DICE_ROLLER_SOURCE, {
+                showDice: true,
+                shouldRender: this.settings.renderDice,
+                showFormula: false,
+                showParens: false,
+                expectedValue: ExpectedValue.Average,
+                text: null
+            });
+        }
+        this.registerEvent(
+            this.app.workspace.on("dice-roller:loaded", () => {
+                window.DiceRoller.registerSource(DICE_ROLLER_SOURCE, {
                     showDice: true,
                     shouldRender: this.settings.renderDice,
                     showFormula: false,
@@ -186,49 +235,16 @@ export default class StatBlockPlugin extends Plugin {
                     expectedValue: ExpectedValue.Average,
                     text: null
                 });
-        }
-        this.registerEvent(
-            this.app.workspace.on("dice-roller:loaded", () => {
-                this.app.plugins
-                    .getPlugin("obsidian-dice-roller")
-                    ?.api.registerSource(DICE_ROLLER_SOURCE, {
-                        showDice: true,
-                        shouldRender: this.settings.renderDice,
-                        showFormula: false,
-                        showParens: false,
-                        expectedValue: ExpectedValue.Average,
-                        text: null
-                    });
             })
         );
     }
 
     async loadSettings() {
         const settings: StatblockData = await this.loadData();
-
-        if (settings != undefined && !("version" in settings)) {
-            //1.X settings;
-            this.settings = { ...DEFAULT_DATA };
-            this.settings.monsters = settings as any as [string, Monster][];
-
-            new Notice(
-                "5e Statblocks is now TTRPG Statblocks. Check out the ReadMe for more information!"
-            );
-        } else {
-            if (
-                settings &&
-                settings?.version?.major >= 2 &&
-                settings?.version?.minor >= 25 &&
-                !settings?.notifiedOfFantasy
-            ) {
-                new Notice("TTRPG Statblocks is now Fantasy Statblocks!");
-                settings.notifiedOfFantasy = true;
-            }
-            this.settings = {
-                ...DEFAULT_DATA,
-                ...settings
-            };
-        }
+        this.settings = {
+            ...DEFAULT_DATA,
+            ...settings
+        };
         if (!this.settings.defaultLayoutsIntegrated) {
             for (const layout of this.settings.layouts) {
                 layout.id = nanoid();
@@ -241,30 +257,20 @@ export default class StatBlockPlugin extends Plugin {
 
             this.settings.defaultLayoutsIntegrated = true;
         }
-        if (this.settings.defaultLayouts.length != DefaultLayouts.length) {
-            for (const layout of DefaultLayouts) {
-                if (this.settings.defaultLayouts.find((l) => l.id == layout.id))
-                    continue;
-                this.settings.defaultLayouts.push(fastCopy(layout));
+        if (Array.isArray(this.settings.defaultLayouts)) {
+            const map: Record<string, DefaultLayout> = {};
+            for (const layout of this.settings
+                .defaultLayouts as DefaultLayout[]) {
+                if (layout.removed || layout.edited) {
+                    map[layout.id] = layout;
+                }
             }
-            for (const layout of this.settings.defaultLayouts) {
-                if (DefaultLayouts.find((l) => l.id == layout.id)) continue;
-                this.settings.layouts.push(layout);
-                this.settings.defaultLayouts.splice(
-                    this.settings.defaultLayouts.indexOf(layout),
-                    1
-                );
-            }
-            this.settings.layouts = this.settings.layouts.filter(
-                (layout) =>
-                    !this.settings.defaultLayouts.find((l) => l.id == layout.id)
-            );
+            this.settings.defaultLayouts = map;
         }
         for (const layout of DefaultLayouts) {
-            if (!layout.version) continue;
-            const existing = this.settings.defaultLayouts.find(
-                (l) => l.id === layout.id
-            );
+            if (!(layout.id in this.settings.defaultLayouts)) continue;
+            if (layout.version == null) continue;
+            const existing = this.settings.defaultLayouts[layout.id];
             if (existing.version >= layout.version) continue;
             if (existing.edited) {
                 existing.updatable = true;
@@ -306,7 +312,7 @@ export default class StatBlockPlugin extends Plugin {
         return (await super.loadData()) as StatblockData;
     }
     async saveData(settings: StatblockData) {
-        if (this.settings.atomicWrite) {
+        /* if (this.settings.atomicWrite) {
             try {
                 await this.app.vault.adapter.write(
                     `${this.manifest.dir}/temp.json`,
@@ -323,9 +329,9 @@ export default class StatBlockPlugin extends Plugin {
             } catch (e) {
                 super.saveData(settings);
             }
-        } else {
-            super.saveData(settings);
-        }
+        } else { */
+        super.saveData(settings);
+        /* } */
     }
 
     async saveMonster(monster: Monster, save: boolean = true) {
@@ -360,7 +366,7 @@ export default class StatBlockPlugin extends Plugin {
     }
 
     async updateMonster(oldMonster: Monster, newMonster: Monster) {
-        this.deleteMonster(oldMonster.name, false);
+        await this.deleteMonsters(oldMonster.name);
         await this.saveMonster(newMonster);
     }
 
@@ -372,11 +378,6 @@ export default class StatBlockPlugin extends Plugin {
             ([name]) => !monsters.includes(name)
         );
         await this.saveSettings();
-    }
-
-    async deleteMonster(monster: string, save = true) {
-        Bestiary.removeLocalCreature(monster);
-        if (save) await this.saveSettings();
     }
 
     onunload() {

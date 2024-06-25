@@ -33,28 +33,31 @@
     export let canSave: boolean = true;
     export let icons = true;
 
-    let maxColumns =
+    const monsterStore = writable();
+    $: $monsterStore = monster;
+    const maxColumns =
         !isNaN(Number(monster.columns ?? layout.columns)) &&
         Number(monster.columns ?? layout.columns) > 0
             ? Number(monster.columns ?? layout.columns)
             : 2;
 
-    $: monsterColumnWidth = Number(`${monster.columnWidth}`.replace(/\D/g, ""));
-    $: columnWidth =
+    const monsterColumnWidth = Number(
+        `${monster.columnWidth}`.replace(/\D/g, "")
+    );
+    const columnWidth =
         !isNaN(monsterColumnWidth ?? layout.columnWidth) &&
         (monsterColumnWidth ?? layout.columnWidth) > 0
             ? monsterColumnWidth
             : 400;
 
-    let canExport = monster.export ?? plugin.settings.export;
-    let canDice =
+    const canDice =
         plugin.canUseDiceRoller && (monster.dice ?? plugin.settings.useDice);
-    let canRender = monster.render ?? plugin.settings.renderDice;
+    const canRender = monster.render ?? plugin.settings.renderDice;
 
     setContext<StatBlockPlugin>("plugin", plugin);
     setContext<boolean>("tryToRenderLinks", plugin.settings.tryToRenderLinks);
     setContext<string>("context", context);
-    setContext<Partial<Monster>>("monster", monster);
+    setContext<Writable<Partial<Monster>>>("monster", monsterStore);
     setContext<boolean>("dice", canDice);
     setContext<boolean>("render", canRender);
     setContext<StatBlockRenderer>("renderer", renderer);
@@ -64,8 +67,8 @@
     setContext<Writable<boolean>>("reset", reset);
 
     let container: HTMLElement;
-    let columns: number = maxColumns;
-    let ready = false;
+    $: columns = maxColumns;
+    $: ready = false;
 
     const setColumns = () => {
         if (monster.forceColumns ?? layout.forceColumns) {
@@ -123,13 +126,12 @@
                 }
             });
     });
-    if (canExport)
-        menu.addItem((item) =>
-            item
-                .setIcon("image-down")
-                .setTitle("Export as PNG")
-                .onClick(() => dispatch("export"))
-        );
+    menu.addItem((item) =>
+        item
+            .setIcon("image-down")
+            .setTitle("Export as PNG")
+            .onClick(() => dispatch("export"))
+    );
     if (canDice)
         menu.addItem((item) =>
             item
@@ -147,8 +149,8 @@
     const slugify = (str: string, fallback: string = "") =>
         str?.toLowerCase().replace(/\s+/g, "-") ?? fallback;
 
-    const name = slugify(monster.name, "no-name");
-    const layoutName = slugify(layout.name, "no-layout");
+    $: name = slugify(monster.name, "no-name");
+    $: layoutName = slugify(layout.name, "no-layout");
     const getNestedLayouts = (blocks: StatblockItem[]): string[] => {
         const classes: string[] = [];
         for (const block of blocks) {
@@ -165,7 +167,7 @@
         return classes;
     };
 
-    const classes = [name, layoutName, ...getNestedLayouts(statblock)].filter(
+    $: classes = [name, layoutName, ...getNestedLayouts(statblock)].filter(
         (n) => n?.length
     );
 </script>
@@ -177,25 +179,27 @@
             class:statblock={true}
             class={classes.join(" ")}
         >
-            {#if monster}
-                <Bar />
-                {#key columns}
-                    <ColumnContainer
-                        {columns}
-                        {maxColumns}
-                        {statblock}
-                        {ready}
-                        {classes}
-                        {layout}
-                        {plugin}
-                        on:save
-                        on:export
-                    />
-                {/key}
-                <Bar />
-            {:else}
-                <span>Invalid monster.</span>
-            {/if}
+            {#key $monsterStore}
+                {#if $monsterStore}
+                    <Bar />
+                    {#key columns}
+                        <ColumnContainer
+                            {columns}
+                            {maxColumns}
+                            {statblock}
+                            {ready}
+                            {classes}
+                            {layout}
+                            {plugin}
+                            on:save
+                            on:export
+                        />
+                    {/key}
+                    <Bar />
+                {:else}
+                    <span>Invalid monster.</span>
+                {/if}
+            {/key}
         </div>
         {#if icons}
             <div class="icons" use:iconsEl on:click={showMenu} />

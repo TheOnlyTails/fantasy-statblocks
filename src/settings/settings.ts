@@ -1,12 +1,9 @@
 import {
     App,
     ButtonComponent,
-    debounce,
-    Modal,
     normalizePath,
     Notice,
     PluginSettingTab,
-    prepareSimpleSearch,
     setIcon,
     Setting,
     TFolder
@@ -18,19 +15,18 @@ import LayoutEditor from "./layout/LayoutEditor.svelte";
 import fastCopy from "fast-copy";
 
 import Importer from "src/importers/importer";
-import { EditMonsterModal, ViewMonsterModal } from "./modal";
+import { EditMonsterModal } from "./modal";
 import { Layout5e } from "src/layouts/basic 5e/basic5e";
 import type { DefaultLayout, Layout } from "src/layouts/layout.types";
 import { DefaultLayouts } from "src/layouts";
-import { nanoid, stringify } from "src/util/util";
+import { nanoid } from "src/util/util";
 import { DICE_ROLLER_SOURCE } from "src/main";
 import type { Monster } from "index";
-import { ExpectedValue } from "obsidian-overload";
 import FantasyStatblockModal from "src/modal/modal";
-import { FolderInputSuggest } from "obsidian-utilities";
+import { FolderInputSuggest } from "@javalent/utilities";
 import { Watcher } from "src/watcher/watcher";
-import { Bestiary } from "src/bestiary/bestiary";
 import Creatures from "./creatures/Creatures.svelte";
+import { ExpectedValue } from "@javalent/dice-roller";
 
 export default class StatblockSettingTab extends PluginSettingTab {
     importer: Importer;
@@ -91,6 +87,15 @@ export default class StatblockSettingTab extends PluginSettingTab {
                     e.createEl("br");
                     e.createSpan({
                         text: "This can cause issues sometimes when using sync services."
+                    });
+                    e.createEl("br");
+                    const warning = e.createDiv();
+                    setIcon(warning.createDiv(), "warning");
+                    warning.createSpan({
+                        attr: {
+                            style: "color: var(--text-error)"
+                        },
+                        text: "This setting is currently disabled."
                     });
                 })
             )
@@ -179,9 +184,9 @@ export default class StatblockSettingTab extends PluginSettingTab {
                     .onChange(async (v) => {
                         this.plugin.settings.renderDice = v;
                         if (this.plugin.diceRollerInstalled) {
-                            this.app.plugins
-                                .getPlugin("obsidian-dice-roller")
-                                ?.api.registerSource(DICE_ROLLER_SOURCE, {
+                            window.DiceRoller.registerSource(
+                                DICE_ROLLER_SOURCE,
+                                {
                                     showDice: true,
                                     shouldRender:
                                         this.plugin.settings.renderDice,
@@ -189,7 +194,8 @@ export default class StatblockSettingTab extends PluginSettingTab {
                                     showParens: false,
                                     expectedValue: ExpectedValue.Average,
                                     text: null
-                                });
+                                }
+                            );
                         }
                         await this.plugin.saveSettings();
                     })
@@ -500,6 +506,7 @@ export default class StatblockSettingTab extends PluginSettingTab {
 
                 d.onChange(async (v) => {
                     this.plugin.settings.default = v;
+                    this.plugin.manager.setDefaultLayout(v);
                     await this.plugin.saveSettings();
                 });
             });
@@ -551,21 +558,27 @@ export default class StatblockSettingTab extends PluginSettingTab {
     ) {
         layoutContainer.empty();
 
-        if (this.plugin.settings.defaultLayouts.some((f) => f.removed)) {
+        if (this.plugin.manager.getAllDefaultLayouts().some((f) => f.removed)) {
             new Setting(layoutContainer)
                 .setName("Restore Default Layouts")
                 .addButton((b) => {
                     b.setIcon("rotate-ccw").onClick(async () => {
-                        for (const layout of this.plugin.settings
-                            .defaultLayouts) {
-                            delete layout.removed;
+                        for (const layout of Object.values(
+                            this.plugin.settings.defaultLayouts
+                        )) {
+                            layout.removed = false;
+                            if (!layout.edited) {
+                                delete this.plugin.settings.defaultLayouts[
+                                    layout.id
+                                ];
+                            }
                         }
                         await this.plugin.saveSettings();
                         this.generateLayouts(outerContainer);
                     });
                 });
         }
-        for (const layout of this.plugin.settings.defaultLayouts) {
+        for (const layout of this.plugin.manager.getAllDefaultLayouts()) {
             if (layout.removed) continue;
 
             const setting = new Setting(layoutContainer)
@@ -582,13 +595,8 @@ export default class StatblockSettingTab extends PluginSettingTab {
                                 if (!modal.saved) return;
 
                                 (modal.layout as DefaultLayout).edited = true;
-                                this.plugin.settings.defaultLayouts.splice(
-                                    this.plugin.settings.defaultLayouts.findIndex(
-                                        (l) => layout.id === l.id
-                                    ),
-                                    1,
-                                    modal.layout
-                                );
+                                this.plugin.settings.defaultLayouts[layout.id] =
+                                    modal.layout;
 
                                 await this.plugin.saveSettings();
                                 this.plugin.manager.updateDefaultLayout(
@@ -606,13 +614,7 @@ export default class StatblockSettingTab extends PluginSettingTab {
                         const defLayout = DefaultLayouts.find(
                             ({ id }) => id == layout.id
                         );
-                        this.plugin.settings.defaultLayouts.splice(
-                            this.plugin.settings.defaultLayouts.findIndex(
-                                (l) => layout.id === l.id
-                            ),
-                            1,
-                            fastCopy(defLayout)
-                        );
+                        delete this.plugin.settings.defaultLayouts[layout.id];
                         await this.plugin.saveSettings();
                         this.plugin.manager.updateDefaultLayout(
                             layout.id,
@@ -659,6 +661,8 @@ export default class StatblockSettingTab extends PluginSettingTab {
                         .setTooltip("Delete")
                         .onClick(async () => {
                             layout.removed = true;
+                            this.plugin.settings.defaultLayouts[layout.id] =
+                                layout;
                             await this.plugin.saveSettings();
                             this.generateLayouts(outerContainer);
                         });
@@ -966,7 +970,7 @@ export default class StatblockSettingTab extends PluginSettingTab {
     }
     generateMonsters(containerEl: HTMLDivElement) {
         containerEl.empty();
-        new Setting(containerEl).setHeading().setName("Homebrew Creatures");
+        new Setting(containerEl).setHeading().setName("Bestiary");
         const additionalContainer = containerEl.createDiv(
             "statblock-additional-container statblock-monsters"
         );

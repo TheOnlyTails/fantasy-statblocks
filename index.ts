@@ -26,7 +26,7 @@ export interface Monster {
     type: string;
     subtype: string;
     alignment: string;
-    ac: number;
+    ac: string | number;
     hp: number;
     hit_dice?: string;
     speed: string;
@@ -105,6 +105,8 @@ export interface Monster {
     creature?: string;
     extends?: string | string[];
     bestiary: boolean;
+
+    [key: string]: any;
 }
 
 export interface StatblockParameters
@@ -134,7 +136,7 @@ export interface Trait {
 
 export interface StatblockData {
     monsters: Array<[string, Monster]>;
-    defaultLayouts: DefaultLayout[];
+    defaultLayouts: Record<string, DefaultLayout>;
     layouts: Layout[];
     default: string;
     useDice: boolean;

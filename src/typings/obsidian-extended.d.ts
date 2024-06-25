@@ -1,9 +1,6 @@
 import "obsidian";
 
 interface StatblockEvents {
-    "dice-roller:rendered-result": number;
-    "dice-roller:unload": null;
-    "dice-roller:loaded": null;
     "fantasy-statblocks:settings-change": StatblockData;
     "fantasy-statblocks:frontmatter-change": boolean;
     "fantasy-statblocks:srd-change": boolean;
@@ -48,5 +45,11 @@ declare module "obsidian" {
             data: StatblockEvents[T]
         ): void;
         trigger(name: "hover-link", data: HoverLinkEvent): EventRef;
+    }
+    interface WorkspaceLeaf {
+        parent: WorkspaceParent;
+    }
+    interface WorkspaceParent {
+        children: WorkspaceLeaf[];
     }
 }
